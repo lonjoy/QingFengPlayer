@@ -1,6 +1,6 @@
 package media
-{
-	import com.cdvcloud.xems.ve.player.IPlayer;
+{	
+	import com.greensock.layout.*;
 	
 	import flash.display.Sprite;
 	import flash.display.Stage;
@@ -18,127 +18,297 @@ package media
 	import flash.net.NetStream;
 	import flash.utils.Timer;
 	import flash.utils.getTimer;
-	import media.PlayState;
+	
 	import media.MediaEvent;
+	import media.PlayState;
 	
 	public class BaseVideo extends Sprite implements IPlayer
 	{
-		private var video:*;
-		private var netConnection:NetConnection; //视频链接对象
-		protected var netStream:NetStream; //主要的视频流加载
-		private var size:Point;
-		private var bufferTime:Number=0.1;
-		private var videoStage:Stage;
-		private var _bgColor:int=0x0;
-		private var _resizeMode:String="all";
-		private var _startParams:String="start";
-		private var _url:String;
-		protected var isPause:Boolean=false;
+		private var _video:Video;
+		private var _netConnection:NetConnection;
+		private var _netStream:NetStream;
+		private var _fmsServer:String;
 		
+		private var size:Point;
+		private var _bufferTime:Number=0.1;
+		private var _startParams:String="start";
+		private var _url:String;		
 		
 		private var _isReady:Boolean=false;
-		private var metaData:Object=null;
-		private var isHttpstream:Boolean=false;
-		private var seeker:Seeker;
-		private var listenTimer:Timer;
+		private var _metaData:Object=null;
+		private var _isHttpstream:Boolean=false;
+		private var _isRtmpstream:Boolean=false;
+		private var _seeker:Seeker;
+		private var _listenTimer:Timer;
 		
-		private var preTime:Number=0;
-		private var seekToTime:Number=-1;
-		private var isBuffer:Boolean=false;
+		private var _preTime:Number=0;
+		private var _seekToTime:Number=-1;
+		private var _isBuffering:Boolean=false;
 		
 		private var _mute:Boolean=false;
 		private var _volume:Number=1;
 		private var _isSeeking:Boolean=false;
+		private var _playStatus:uint;
 		
-		public function BaseVideo(stage:Stage=null,bufferTime:Number=0.1,bgColor:int=0x0)
+		private var _areaWidth:Number=400;
+		private var _areaHeight:Number=300;
+		
+		public function BaseVideo(bufferTime:Number,startParams:String=null)
 		{
-			this.videoStage=stage;
-			this.bufferTime=bufferTime;
-			this.bgColor=bgColor;
-			setSize(320,240);
-			initVideo();
+			_bufferTime=bufferTime;
+			_startParams=startParams;
+			init();
 		}
+		private function init():void
+		{               
+			_netConnection = new NetConnection();
+			_netConnection.addEventListener(NetStatusEvent.NET_STATUS,onNetStateHandler);
 
-
-		public function get isReady():Boolean
-		{
-			return _isReady;
-		}
-
-		public function get isSeeking():Boolean
-		{
-			return _isSeeking;
-		}
-
-		public function get volume():Number
-		{
-			return _volume;
-		}
-
-		public function set volume(value:Number):void
-		{
-			_volume = value;
-			var soundtr:SoundTransform=new SoundTransform(_volume);
-			netStream.soundTransform=soundtr;
-		}
-
-		public function get mute():Boolean
-		{
-			return _mute;
-		}
-
-		public function set mute(value:Boolean):void
-		{
-			_mute = value;
-		}
-
-		public function get startParams():String
-		{
-			return _startParams;
-		}
-
-		public function set startParams(value:String):void
-		{
-			_startParams = value;
-			if(seeker){
-				seeker.startParams=value;
+			if(GlobleData.isRTMP)
+			{
+				if(_fmsServer)
+				{
+					_netConnection.connect(_fmsServer);
+				}
+				else
+				{
+					trace("当前是rtmp，但没有解析出fms服务器地址")
+				}
+			}
+			else
+			{
+				_netConnection.connect(null)
 			}
 		}
-
-		override public function set width(value:Number):void{
-			super.width=value;
-			throw new Error("请使用setSize设置");
-		}
-		override public function set height(value:Number):void{
-			super.height=value;
-			throw new Error("请使用setSize设置");
-		}
-		/**
-		 *设置显示的缩放模式，默认情况是直接变形适配宽高，要传自动一缩放比例时请传"宽度_高度",如4_3 
-		 * @param value
-		 * 
-		 */
-		public function set resizeMode(value:String):void
+		private function onNetStateHandler(event:NetStatusEvent):void
 		{
-			_resizeMode = value;
+			if(event.target==_netStream)
+			{  
+				switch(event.info.code)
+				{
+					case "NetStream.Unpause.Notify":
+						dispatchOnPlayStatusChange(PlayState.PLAY);
+						break;
+					case "NetStream.Pause.Notify":
+						dispatchOnPlayStatusChange(PlayState.PAUSE);
+						break;
+					case "NetStream.Play.StreamNotFound":
+						dispatchOnPlayStatusChange(PlayState.ERRO);
+						break;
+					case "NetStream.Buffer.Full":
+						_isBuffering=false;
+						_isSeeking=false;
+						dispatchOnBufferStatusChange(BufferStatus.END);
+						break;
+				}
+			}
+			else
+			{
+				switch(event.info.code)
+				{
+					case "NetConnection.Connect.Success":
+						onConnectSuccess();
+						break;
+					case "NetConnection.Connect.Failed":
+						onConnectFailed();
+						break;
+					case "NetConnection.Connect.Closed":
+						onConnectClosed();
+						break;
+				}
+			}
 		}
+		private function onConnectSuccess():void
+		{
+			initStream();
+			initTime();
+			initVideo();
+		}
+		private function initStream():void
+		{
+			_netStream = new NetStream(_netConnection);
+			
+			_netStream.bufferTime=this._bufferTime;
+			
+			var netClient:Object=new Object();
+			netClient.onMetaData = onMetaData;
+			netClient.onCuePoint = onCuePoint;
+			netClient.onPlayStatus = onNsStatus;
+			_netStream.client = netClient;
+			
+			_netStream.addEventListener(NetStatusEvent.NET_STATUS,onNetStateHandler);
+		}
+		private function initTime():void
+		{
+			_listenTimer=new Timer(100);
+			_listenTimer.addEventListener(TimerEvent.TIMER,onTimerHandler);
+		}
+		private function initVideo():void
+		{
+			_video = new Video();				
+			addChild(_video);  
+			_video.attachNetStream(_netStream);
+		}
+		private function onConnectFailed():void
+		{
+			
+		}
+		private function onConnectClosed():void
+		{
+			
+		}
+		private function setSeeker(isFlv:Boolean):void
+		{
+			if(_seeker)
+			{
+				_seeker.dispose();
+				_seeker=null;
+			}
+			
+			if (isFlv)
+			{
+				_seeker=new FLVSkeer(_metaData,_netStream);
+			}
+			else
+			{
+				_seeker=new MP4Seeker(_metaData,_netStream);
+			}
+			_seeker.startParams=_startParams;
+		}
+		protected function onMetaData(metaData:Object):void
+		{		
+			if(isReady==false)
+			{		
+				_isReady=true;	
+				volume=volume;
+				_metaData=metaData;	
 
+				if(_url.indexOf("http://")>-1)
+				{
+					if (metaData.keyframes)
+					{
+						_isHttpstream=true;
+						setSeeker(true);
+					}
+					else if(metaData.seekpoints)
+					{
+						_isHttpstream=true;
+						setSeeker(false);
+					}
+					else
+					{
+						_isHttpstream=false;
+					}
+					_isRtmpstream=false;
+				}
+				else if(_url.indexOf("rtmp://")>-1)
+				{
+					_isRtmpstream=true;
+					_fmsServer=getFmsServerFromURL(_url)
+					_isHttpstream=false;
+				}	
+				else
+				{
+					_isRtmpstream=false;
+					_isHttpstream=false;
+				}
+				dispatchEvent(new MediaEvent(MediaEvent.READY));
+			}
+		}
+		private function getFmsServerFromURL(url:String):String
+		{
+			var array:Array=url.split("/");
+			return array[0]+"//"+array[2]+"/"+array[3];
+		}
+		protected function onCuePoint(cueData:Object):void
+		{
+			trace("onCuePoint");
+		}
+		protected function onNsStatus(stateData:Object):void
+		{
+			if (stateData.code == "NetStream.Play.Complete")
+			{
+				dispatchOnPlayStatusChange(PlayState.COMPLETE);
+				return;
+			}
+			if(stateData.level.status&&stateData.level.status=="NetStream.Play.Complete")
+			{
+				dispatchOnPlayStatusChange(PlayState.COMPLETE);
+				return;
+			}
+		}
 		
-		/**
-		 *播放新的视频 
-		 * @param url
-		 * 
-		 */
-		public function load(url:String):void{
-			_isReady=false;
-			metaData=null;
-			_url=url;
-			preTime=0;
-			isBuffer=true;
-			this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_BUFFER_CHANGED,{state:PlayState.MEDIA_BUFFER_START}));
-			netStream.play(_url);
-			if(!listenTimer.running){
-				listenTimer.start();
+		private function dispatchOnBufferStatusChange(status:uint,bufferPercent:Number=0):void
+		{
+			var param:Object=new Object();
+			param.status=status;
+			param.bufferPerceng=bufferPercent
+			dispatchEvent(MediaEvent.BUFFER_STATUS_CHANGED,param);
+		}
+		private function dispatchOnPlayStatusChange(status:uint):void
+		{
+			var param:Object=new Object();
+			param.status=status;
+			dispatchEvent(MediaEvent.PLAY_STATUS_CHANGED,param);
+		}
+		private function dispatchOnTimeChange($time:Number,$duration:Number):void
+		{
+			var param:Object=new Object();
+			param.time=$time;
+			param.duration=$duration;
+			dispatchEvent(MediaEvent.TIME_CHANGED,param);
+		}
+		protected function onTimerHandler(event:TimerEvent):void
+		{
+			if(isBuffering)
+			{
+				dispatchOnBufferStatusChange(BufferStatus.BUFFERING,bufferLoad);
+			}
+			else
+			{
+				if(playStatus==PlayState.PLAY)
+				{
+					dispatchOnTimeChange(time,duration)
+				}
+			}
+		}
+        private function getNumScale(strScale:String):Number
+		{
+			var array:Array=strScale.split(":");
+			return Number(array[1])/Number(array[0]);
+		}
+		public function resizeVideo(areaWidth:Number,areaHeight:Number,scale:String=null):void
+		{
+			if(isReady)
+			{
+				_areaWidth=areaWidth;
+				_areaHeight=areaHeight;
+				
+				var videoPer:Number
+				if(scale)
+				{
+					videoPer=_metaData.width/(_metaData.width*getNumScale(scale));
+				}
+				else
+				{
+					videoPer=_metaData.width/_metaData.height;
+				}
+				var areaPer:Number=areaWidth/areaHeight;
+				
+				if (videoPer >= areaPer)
+				{
+					_video.height = areaHeight;
+					_video.width = this.height/videoPer;
+				}
+				else
+				{
+					_video.width = areaWidth;
+					_video.height = this.width*videoPer;
+				}
+			}
+			else
+			{
+				trace("调用resizeVideo方法必须在Ready事件后")
 			}
 		}
 		/**
@@ -146,22 +316,28 @@ package media
 		 * @param tm单位为秒
 		 * 
 		 */
-		public function seek(tm:Number):void{
-			isBuffer=true;
+		public function seek(tm:Number):void
+		{
+			_isBuffering=true;
 			_isSeeking=true;
-			this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_BUFFER_CHANGED,{state:PlayState.MEDIA_BUFFER_START}));
-			if(isHttpstream){
-				seeker.seek(tm,_url);
-				preTime=seeker.seekTime*1000;
-			}else{
+			dispatchOnBufferStatusChange(BufferStatus.START);
+			if(_isHttpstream)
+			{
+				_seeker.seek(tm,_url);
+				_preTime=_seeker.seekTime*1000;
+			}
+			else
+			{
 				//非HTTP流
-				var bufferedTime:Number = (netStream.bytesLoaded / netStream.bytesTotal) * duration;
+				var bufferedTime:Number = (_netStream.bytesLoaded / _netStream.bytesTotal) * duration;
 				if (tm <= bufferedTime)
 				{	
 					tm=int(Math.min(tm,duration-1));
-					netStream.seek(tm);
-					preTime=tm*1000;
-				}else{
+					_netStream.seek(tm);
+					_preTime=tm*1000;
+				}
+				else
+				{
 					trace("还没加载到拖拽时间的位置");
 				}
 			}
@@ -170,13 +346,12 @@ package media
 		 *视频完全终止，流停止 
 		 * 
 		 */
-		public function stop():void{
-			if(listenTimer.running){
-				listenTimer.stop();
-			}
+		public function stop():void
+		{
+			_listenTimer.reset();
 			try
 			{
-				netStream.close();
+				_netStream.close();
 			} 
 			catch(error:Error) 
 			{
@@ -185,13 +360,7 @@ package media
 		}
 		public function clear():void
 		{
-			if(this.video is Video)
-			{
-				Video(this.video).clear();
-			}else
-			{
-					
-			}
+			_video.clear()
 		}
 		/**
 		 *能否拖拽至该时间 
@@ -199,11 +368,15 @@ package media
 		 * @return 
 		 * 
 		 */
-		public function canSeekToTime(tm:Number):Boolean{
-			if(isHttpstream){
-				return seeker.canSeekToTime(tm);
-			}else{
-				var bufferedTime:Number=netStream.bytesLoaded/netStream.bytesTotal;
+		public function canSeekToTime(tm:Number):Boolean
+		{
+			if(_isHttpstream)
+			{
+				return _seeker.canSeekToTime(tm);
+			}
+			else
+			{
+				var bufferedTime:Number=_netStream.bytesLoaded/_netStream.bytesTotal;
 				return tm<=bufferedTime;
 			}
 			return false;
@@ -212,22 +385,39 @@ package media
 		 *播放 
 		 * 
 		 */
-		public function play():void{
-			isPause=false;
-			netStream.resume();
-			
-			if(listenTimer.running==false)
+		public function play(url:String):void
+		{
+			if(url)//如果是播放新视频
 			{
-				listenTimer.start();
+				_isReady=false;
+				_metaData=null;
+				_url=url;
+				_preTime=0;
+				_isBuffering=true;
+				_netStream.play(_url);
+				if(!_listenTimer.running)
+				{
+					_listenTimer.start();
+				}
+				dispatchOnBufferStatusChange(BufferStatus.START);
+			}
+			else//如果是从暂停恢复
+			{
+				_netStream.resume();
+				
+				if(_listenTimer.running==false)
+				{
+					_listenTimer.start();
+				}
 			}
 		}
 		/**
 		 *暂停 
 		 * 
 		 */
-		public function pause():void{
-			isPause=true;
-			netStream.pause();
+		public function pause():void
+		{
+			_netStream.pause();
 		}
 		/**
 		 *恢复播放 
@@ -241,278 +431,92 @@ package media
 		 * @return 
 		 * 
 		 */
-		public function get duration():Number{		
-			if(isHttpstream){
-				if(seeker){
-					return seeker.endTime;
+		public function get duration():Number
+		{		
+			if(_isHttpstream)
+			{
+				if(_seeker)
+				{
+					return _seeker.endTime;
 				}
 			}
-			return metaData.duration;
+			return _metaData.duration;
 		}
 		/**
 		 *获取视频当前时间 
 		 * @return 
 		 * 
 		 */
-		public function get time():Number{
+		public function get time():Number
+		{
 			var seekOff:Number=0;
-			if(seeker){
-				seekOff=seeker.seekTime;
+			if(_seeker){
+				seekOff=_seeker.seekTime;
 			}
-			var tm:Number=netStream.time+seekOff;
-			return Math.min(tm,duration)*1000;
+			var tm:Number=_netStream.time+seekOff;
+			return Math.min(tm,duration);
+		}
+		public function get playStatus():uint
+		{
+			return _playStatus;
 		}
 		/**
 		 *获取缓冲进度 
 		 * @return 
 		 * 
 		 */
-		public function get bufferLoad():Number{			
-			return Math.min(netStream.bufferLength/netStream.bufferTime,1);
+		public function get bufferLoad():Number
+		{			
+			return Math.min(_netStream.bufferLength/_netStream.bufferTime,1);
 		}
 		/**
 		 *获取加载进度 
 		 * @return 
 		 * 
 		 */
-		public function get byteLoaded():Number{
+		public function get byteLoaded():Number
+		{
 			var seekOff:Number=0;
-			if(seeker){
-				seekOff=seeker.seekBytes;
-			}
-			return Math.min((netStream.bytesLoaded+seekOff)/netStream.bytesTotal,1);
-		}
-		/**
-		 *设置背景颜色 
-		 * @param value
-		 * 
-		 */
-		public function set bgColor(value:int):void
-		{
-			_bgColor = value;
-		}
-		
-		/**
-		 *设置Box规格 
-		 * @param width
-		 * @param height
-		 * 
-		 */
-		public function setSize(width:int=320, height:int=240):void{
-			size=new Point(width,height);
-			if(this.metaData){
-				resizeVideo();
-			}
-			drawBackgroundColor();
-		}
-		
-		/**
-		 *判断视频是否支持硬件加速 
-		 * @param event
-		 * 
-		 */
-		protected function onStageVideoState(event:StageVideoAvailabilityEvent):void
-		{
-			this.videoStage.removeEventListener(StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY,onStageVideoState);
-			if(event.availability==StageVideoAvailability.AVAILABLE){
-				video=this.videoStage.stageVideos[0];
-				video.viewPort = new Rectangle(0,0,size.x,size.y);
-				video.addEventListener(StageVideoEvent.RENDER_STATE, onStageVideoChanged);
-			}else{
-				video = new Video();				
-				addChild(video);  
-			}
-			video.attachNetStream(netStream);
-		}
-		/**
-		 *硬件加速 
-		 * @param e
-		 * 
-		 */
-		protected function onStageVideoChanged(e:StageVideoEvent):void{
-			//trace(e.status);
-		}
-		
-		protected function resizeVideo():void{
-			var mode:String=this._resizeMode;
-			var w:Number=metaData.width;
-			var h:Number=metaData.height;
-
-			var np:Point;
-			if(mode==ResizeMode.SHOW_ALL){
-//				np=ResizeFit.resizeInBox(new Point(w,h),this.size);
-				setVideoSize(this.size.x,this.size.y);
-			}else{
-				var ratio:Number=getRatio();
-				h=w*ratio;
-				np=ResizeFit.resizeInBox(new Point(w,h),this.size);
-				setVideoSize(np.x,np.y);
-			}
-		}
-		protected function getRatio():Number{
-			var arr:Array=this._resizeMode.split("_");
-			var a:Number=parseFloat(arr[0]);
-			var b:Number=parseFloat(arr[1]);
-			return b/a;
-		}
-		protected function setVideoSize(w:Number,h:Number):void{
-			if(this.video is Video){
-				this.video.width=w;
-				this.video.height=h;	
-				this.video.x=(this.size.x-this.video.width)/2;
-			    this.video.y=(this.size.y-this.video.height)/2;
-				
-			}else{
-				/*var xx=(this.size.x-w)/2;
-				var yy=(this.size.y-h)/2;
-				video.viewPort = new Rectangle(xx,yy,w,h);*/
-			}
-			
-		}
-		protected function onMetaData(metaData:Object):void{		
-			if(isReady==false){		
-				_isReady=true;		
-				if(seeker){
-					seeker.dispose();
-					seeker=null;
-				}
-				volume=volume;
-				this.metaData=metaData;	
-				if(_url.indexOf("http://")>-1){
-					if (metaData.keyframes){
-						isHttpstream=true;
-						seeker=new FLVSkeer(metaData,netStream);
-						startParams=startParams;
-					}else if(metaData.seekpoints){
-						isHttpstream=true;
-						seeker=new MP4Seeker(metaData,netStream);
-						startParams=startParams;
-					}else{
-						isHttpstream=false;
-					}
-				}else{
-					isHttpstream=false;
-				}	
-				
-				//resizeVideo();
-				
-				this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_READY,null));
-			}
-		}
-		protected function onCuePoint(cueData:Object):void{
-			trace("onCuePoint");
-		}
-		protected function onNsStatus(stateData:Object):void{
-			//trace("onNsStatus",stateData.code);
-			if (stateData.code == "NetStream.Play.Complete")
+			if(_seeker)
 			{
-				this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_PLAY_STATE_CHANGED,{state:PlayState.MEDIA_COMPLETE}));
-				return;
+				seekOff=_seeker.seekBytes;
 			}
-			if(stateData.level.status&&stateData.level.status=="NetStream.Play.Complete"){
-				this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_PLAY_STATE_CHANGED,{state:PlayState.MEDIA_COMPLETE}));
-			}
+			return Math.min((_netStream.bytesLoaded+seekOff)/_netStream.bytesTotal,1);
 		}
-		private function initVideo():void
+		public function get isBuffering():Boolean
 		{
-			// TODO Auto Generated method stub                  
-			netConnection = new NetConnection();
-			netConnection.connect(null)
-			netStream = new NetStream(netConnection);
-			netStream.bufferTime=this.bufferTime;
-			
-			var netClient:Object=new Object();
-			netClient.onMetaData = onMetaData;
-			netClient.onCuePoint = onCuePoint;
-			netClient.onPlayStatus = onNsStatus;
-			netStream.client = netClient;
-			netStream.addEventListener(NetStatusEvent.NET_STATUS,onNetStateHandler);
-			netConnection.addEventListener(NetStatusEvent.NET_STATUS,onNetStateHandler);
-			
-			listenTimer=new Timer(100);
-			listenTimer.addEventListener(TimerEvent.TIMER,onTimerHandler);
-			
-			
-			//当传入stage时则开启支持硬件加速
-//			if(this.videoStage){
-//				this.videoStage.addEventListener(StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY,onStageVideoState);
-//			}else{
-				video = new Video();				
-				addChild(video);  
-				video.attachNetStream(netStream);
-//			}
-			
+			return _isBuffering
+		}
+		public function get isReady():Boolean
+		{
+			return _isReady;
 		}
 		
-		protected function onTimerHandler(event:TimerEvent):void
+		public function get isSeeking():Boolean
 		{
-			// TODO Auto-generated method stub
-			if(isReady&&isBuffer==false){
-				if(preTime!=time){
-					if(isPause){
-						//this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_TIME_CHANGED,{time:time,duration:duration}));
-					}else{
-						//if(time>=preTime){		
-							this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_TIME_CHANGED,{time:time,duration:duration}));							
-						//}
-					}					
-				}
-			}
-			if(isBuffer){
-				this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_BUFFER_CHANGED,{state:PlayState.MEDIA_BUFFER_ING,bufferLoad:bufferLoad}));
-			}
-		}
-		protected function onNetStateHandler(event:NetStatusEvent):void{
-			if(event.target==netStream){  
-				//trace("=======================================event.info.code",event.info.code);
-				switch(event.info.code){
-					case "NetStream.Unpause.Notify":
-						this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_PLAY_STATE_CHANGED,{state:PlayState.MEDIA_PLAY}));
-						break;
-					case "NetStream.Pause.Notify":
-						this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_PLAY_STATE_CHANGED,{state:PlayState.MEDIA_PAUSE}));
-						break;
-					case "NetStream.Play.StreamNotFound":
-						this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_PLAY_STATE_CHANGED,{state:PlayState.MEDIA_PLAY_ERRO}));
-						break;
-					case "NetStream.Buffer.Full":
-						isBuffer=false;
-						_isSeeking=false;
-						this.dispatchEvent(new MediaEvent(MediaEvent.MEDIA_BUFFER_CHANGED,{state:PlayState.MEDIA_BUFFER_END}));
-						break;
-				}
-			}else{
-				trace("netConnection");
-			}
+			return _isSeeking;
 		}
 		
-		private function drawBackgroundColor():void{
-			if(this.video is StageVideo){
-				///当是硬件加速时则绘制背景不起作用,因为StageVideo只能在最底层
-				return;
-			}
-			this.graphics.clear();
-			this.graphics.beginFill(_bgColor);
-			this.graphics.drawRect(0,0,size.x,size.y);
-			this.graphics.endFill();
+		public function get volume():Number
+		{
+			return _volume;
 		}
-	}
-	
-}
-import flash.geom.Point;
-class ResizeFit{
-	public static function resizeInBox(displaySize:Point,boxSize:Point):Point{
-		var w:Number=displaySize.x;
-		var h:Number=displaySize.y;
-		var sw:Number=boxSize.x;
-		var sh:Number=boxSize.y;
-		var ssw:Number=sw;
-		var ssh:Number=sh;
-		if((w/h)>(sw/sh)){
-			ssh=(ssw/(w/h));
-		}else{
-			ssw=((ssh*w)/h);
+		
+		public function set volume(value:Number):void
+		{
+			_volume = value;
+			var soundtr:SoundTransform=new SoundTransform(_volume);
+			_netStream.soundTransform=soundtr;
 		}
-		return new Point(ssw,ssh);
+		
+		public function get mute():Boolean
+		{
+			return _mute;
+		}
+		
+		public function set mute(value:Boolean):void
+		{
+			_mute = value;
+		}
 	}
 }

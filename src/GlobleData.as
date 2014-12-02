@@ -8,5 +8,7 @@ package
 		public static var isFullScreen:Boolean=false;
 		public static var controlBarIsShow:Boolean=true;
 		public static var playStatus:uint;
+		
+		public static var isRTMP:Boolean=false;
 	}
 }

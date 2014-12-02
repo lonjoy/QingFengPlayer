@@ -1,9 +1,6 @@
-package com.cdvcloud.xems.ve.player.psp
+package media
 {
 	import flash.net.NetStream;
-
-	//20142014-9-25下午3:10:51
-	//奋斗 QQ:275522479
 	public class FLVSkeer extends Seeker
 	{
 		public function FLVSkeer(mdata:Object,stream:NetStream)

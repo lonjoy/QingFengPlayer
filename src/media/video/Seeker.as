@@ -1,9 +1,7 @@
-package com.cdvcloud.xems.ve.player.psp
+package media
 {
 	import flash.net.NetStream;
 
-	//20142014-9-25下午3:08:03
-	//奋斗 QQ:275522479
 	public class Seeker
 	{
 		protected var times:Array=null;

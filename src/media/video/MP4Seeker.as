@@ -1,7 +1,5 @@
-package com.cdvcloud.xems.ve.player.psp
+package media
 {
-	//20142014-9-26上午11:07:37
-	//奋斗 QQ:275522479
 	import flash.net.NetStream;
 	
 	public class MP4Seeker extends Seeker

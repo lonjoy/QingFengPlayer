@@ -16,7 +16,9 @@
 		function set volume(n:Number):void;
         function get volume():Number;
         function get isReady():Boolean;
+		function get isBuffering():Boolean;
 		function get isSeeking():Boolean;
+		function get playStatus():uint
 		
 		function get time():Number;
 		function get duration():Number;
