@@ -10,15 +10,15 @@ package
 	import skin.ControlBarManager;
 	import skin.events.ProgressChangeEvent;
 	import skin.events.VolChangeEvent;
-	import video.AdvVideoPlayer;
+	import media.video.AdvVideoPlayer
 	import skin.Skin;
-	import video.events.LoadingEvent;
-	import video.events.NetConnectionEvent;
-	import video.events.NetStreamEvent;
-	import video.events.OnMetaDataEvent;
-	import video.events.PlayingEvent;
-	import video.events.PlayStatusEvent;
-	import video.VideoPlayer;
+	import events.LoadingEvent;
+	import events.NetConnectionEvent;
+	import events.NetStreamEvent;
+	import events.OnMetaDataEvent;
+	import events.PlayingEvent;
+	import events.PlayStatusEvent;
+	import media.video.VideoPlayer;
 	
 	/**
 	 * ...

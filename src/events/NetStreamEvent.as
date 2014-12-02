@@ -1,4 +1,4 @@
-package video.events 
+package events 
 {
 	import flash.events.Event;
 	

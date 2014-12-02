@@ -10,7 +10,7 @@ package
 	import flash.events.NetFilterEvent;
 	import flash.external.ExternalInterface;
 	import skin.Skin;
-	import video.AdvVideoPlayer;
+	import media.video.AdvVideoPlayer;
 	import data.Data
 
 	/**
