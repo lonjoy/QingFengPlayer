@@ -1,8 +1,5 @@
-package com.cdvcloud.xems.ve.player.psp
+package media
 {
-	//20142014-9-25上午10:50:22
-	//奋斗 QQ:275522479
-	//该播放器支持HTTP伪流，本地视频，支持格式MP4,FLV，伪流拖拽参数默认为start，需要修改时请设置
 	import com.cdvcloud.xems.ve.player.IPlayer;
 	
 	import flash.display.Sprite;
@@ -24,7 +21,7 @@ package com.cdvcloud.xems.ve.player.psp
 	import media.PlayState;
 	import media.MediaEvent;
 	
-	public class PSVideo extends Sprite implements IPlayer
+	public class BaseVideo extends Sprite implements IPlayer
 	{
 		private var video:*;
 		private var netConnection:NetConnection; //视频链接对象
@@ -53,7 +50,7 @@ package com.cdvcloud.xems.ve.player.psp
 		private var _volume:Number=1;
 		private var _isSeeking:Boolean=false;
 		
-		public function PSVideo(stage:Stage=null,bufferTime:Number=0.1,bgColor:int=0x0)
+		public function BaseVideo(stage:Stage=null,bufferTime:Number=0.1,bgColor:int=0x0)
 		{
 			this.videoStage=stage;
 			this.bufferTime=bufferTime;

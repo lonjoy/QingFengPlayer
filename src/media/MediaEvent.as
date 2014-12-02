@@ -1,7 +1,5 @@
 package media
 {
-	//20142014-9-25下午2:56:08
-	//奋斗 QQ:275522479
 	import flash.events.Event;
 	
 	public class MediaEvent extends Event
